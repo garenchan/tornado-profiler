@@ -8,13 +8,13 @@ import tornado.routing
 import tornado.ioloop
 
 from tornado_profiler import profiler
-from tornado_profiler.backend import Sqlalchemy
 
 
 class MyHandler(tornado.web.RequestHandler):
 
     def get(self):
         self.write("hello, world")
+
 
 def main():
     app = tornado.web.Application(
@@ -23,16 +23,12 @@ def main():
         ],
         enable_profile=True,
     )
-    sqlalchemy = Sqlalchemy()
-    sqlalchemy.init_database()
-    p = profiler.Profiler(sqlalchemy)
+
+    p = profiler.Profiler({"engine": "sqlalchemy"})
     p.init_app(app)
-    #app.listen(8888)
-    #tornado.ioloop.IOLoop.current().start()
-    #print(help(MyHandler.on_finish))
-    print(sqlalchemy.get_all())
+    app.listen(8888, address="0.0.0.0")
+    tornado.ioloop.IOLoop.current().start()
 
 
 if __name__ == '__main__':
     main()
-

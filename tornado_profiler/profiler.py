@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-
 import time
 import json
 import base64
@@ -12,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 import tornado.web
 import tornado.routing
 
+from tornado_profiler import backend as _backend
+
 
 class Profiler(object):
 
@@ -20,14 +20,26 @@ class Profiler(object):
         :param backend: a tornado web application instance
         :param max_workers: use thread pool to store measurements
         """
-        self.backend = backend
+        if isinstance(backend, _backend.Backend):
+            self.backend = backend
+        elif isinstance(backend, dict):
+            backend_name = backend.pop("engine")
+            self.backend = _backend.get_backend(backend_name, **backend)
+        else:
+            raise ValueError("Unknown backend argument.")
+
         self._max_workers = max_workers
 
     def init_app(self, app):
-        # self.app = app
-        app.profiler_executor = ThreadPoolExecutor(self._max_workers)
-        app.profiler_backend = self.backend
+        self.backend.initialize()
 
+        # Inject attributions into application
+        # NOTE: Create thread pool to execute backend operations
+        if not self.backend.is_nonblock():
+            app.profiler_executor_ = ThreadPoolExecutor(self._max_workers)
+        app.profiler_backend_ = self.backend
+
+        # patch app
         self.patch_matcher_match()
         for handler_class in self.get_app_handlers(app):
             self.patch_handler_class(handler_class)
@@ -82,25 +94,27 @@ class Profiler(object):
         """
         # patch HostMatches
         old_host_match = tornado.routing.HostMatches.match
+
         def host_match(self, request):
             ret = old_host_match(self, request)
             if ret is not None:
                 # remove final $ or not?
-                request.profiler_name = pattern = self.regex.pattern
-                request.profiler_type = "host_match"
+                request.profiler_name_ = self.regex.pattern
+                request.profiler_type_ = "host_match"
             return ret
         tornado.routing.HostMatches.match = functools.partialmethod(host_match)
 
         # patch PathMatches
         old_path_match = tornado.routing.PathMatches.match
+
         def path_match(self, request):
             ret = old_path_match(self, request)
             if ret is not None:
                 # remove final $ or not?
-                request.profiler_name = pattern = self.regex.pattern
-                request.profiler_type = "path_match"
+                request.profiler_name_ = self.regex.pattern
+                request.profiler_type_ = "path_match"
                 if ret:
-                    request.profiler_path_args = ret
+                    request.profiler_path_args_ = ret
             return ret
         tornado.routing.PathMatches.match = functools.partialmethod(path_match)
 
@@ -118,18 +132,19 @@ class Profiler(object):
 
         # patch on_finish method
         old_on_finish = handler_class.on_finish
+
         def on_finish(self):
             old_on_finish(self)
 
-            kwargs = {}
+            kwargs = dict()
             # get the corresponding rule(name) for the current request
-            kwargs["name"] = getattr(self.request, "profiler_name", None)
+            kwargs["name"] = getattr(self.request, "profiler_name_", None)
             if kwargs["name"] is None:
                 return
 
             kwargs["method"] = self.request.method
-            kwargs["type"] = getattr(self.request, "profiler_type", None)
-            path_args = getattr(self.request, "profiler_path_args", None)
+            kwargs["type"] = getattr(self.request, "profiler_type_", None)
+            path_args = getattr(self.request, "profiler_path_args_", None)
 
             # http request instantiated when headers received
             kwargs["begin_time"] = int(self.request._start_time)
@@ -160,7 +175,13 @@ class Profiler(object):
                 context.update(path_args)
             kwargs["context"] = json.dumps(context)
             # Store measurement into backend
-            future = self.application.profiler_executor.submit(
-                self.application.profiler_backend.insert, **kwargs)
-            future.result()
+            profiler_executor = getattr(self.application, "profiler_executor_", None)
+            profiler_backend = getattr(self.application, "profiler_backend_")
+            if profiler_backend.is_nonblock():
+                profiler_backend.insert(**kwargs)
+            elif profiler_executor:
+                profiler_executor.submit(profiler_backend.insert, **kwargs)
+            else:
+                raise RuntimeError("Profiler's block backend require a async "
+                                   "executor such as ThreadPoolExecutor")
         handler_class.on_finish = functools.partialmethod(on_finish)

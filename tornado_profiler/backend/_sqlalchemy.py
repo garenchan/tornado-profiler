@@ -1,68 +1,79 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Text, Numeric, Integer, String
+from tornado_profiler.backend import Backend
 
 
-BASE = declarative_base()
+class Sqlalchemy(Backend):
 
+    def __init__(self, db_url="sqlite:///tornado_profiler.db", **kwargs):
+        super(Sqlalchemy, self).__init__()
+        try:
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import scoped_session, sessionmaker
+        except ImportError:
+            raise Exception("To use this backend, you should install "
+                            "'sqlalchemy' manually. Use command:\n"
+                            "'pip install sqlalchemy'.")
 
-class Measurement(BASE):
-    """Table used to store measurements"""
-    __tablename__ = "measurements"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(Text, nullable=False)
-    type = Column(String(32), nullable=True)
-    method = Column(String(32), nullable=True)
-    context = Column(Text, nullable=True)
-
-    begin_time = Column(Numeric, nullable=False)
-    finish_time = Column(Numeric, nullable=False)
-    elapse_time = Column(Numeric, nullable=False)
-
-    def __repr__(self):
-        return "<Measurement {id}, {name}, {type}, {method}, {context}, " \
-               "{begin_time}, {finish_time}, {elapse_time}>".format(
-            id=self.id,
-            name=self.name,
-            type=self.type,
-            method=self.method,
-            context=self.context,
-            begin_time=self.begin_time,
-            finish_time=self.finish_time,
-            elapse_time=self.elapse_time,
-        )
-
-
-class Sqlalchemy(object):
-
-    def __init__(self, engine_url="sqlite:///tornado_profiler.db", **kwargs):
-        self.db_engine = create_engine(engine_url, **kwargs)
+        self.db_engine = create_engine(db_url, **kwargs)
         self.db_pool = sessionmaker(bind=self.db_engine, autocommit=False)
+        # NOTE: sqlite connection can't share across threads
+        if self.db_engine.name == "sqlite":
+            self.db_pool = scoped_session(self.db_pool)
 
-    def init_database(self):
-        BASE.metadata.create_all(self.db_engine)
+    def initialize(self):
+        from sqlalchemy.ext.declarative import declarative_base
+        from sqlalchemy import Column, Text, Numeric, Integer, String
+
+        base = declarative_base()
+
+        class Measurement(base):
+            """Table used to store measurements"""
+            __tablename__ = "measurements"
+
+            id = Column(Integer, primary_key=True)
+            name = Column(Text, nullable=False)
+            type = Column(String(32), nullable=True)
+            method = Column(String(32), nullable=True)
+            context = Column(Text, nullable=True)
+
+            begin_time = Column(Numeric, nullable=False)
+            finish_time = Column(Numeric, nullable=False)
+            elapse_time = Column(Numeric, nullable=False)
+
+            def __repr__(self):
+                return "<Measurement {id}, {name}, {method}>".format(
+                    id=self.id, name=self.name, method=self.method
+                )
+
+        base.metadata.create_all(self.db_engine)
+        globals()["Base"] = base
+        globals()["Measurement"] = Measurement
 
     def insert(self, **kwargs):
+        # Prevent IDE from error reporting
+        Measurement = globals()["Measurement"]
         measurement = Measurement(**kwargs)
 
         session = self.db_pool()
         session.add(measurement)
         session.commit()
-        print(measurement)
+
         return measurement
 
-    def get_all(self):
-        session = self.db_pool()
+    @classmethod
+    def get_name(cls):
+        return "sqlalchemy"
 
-        print(session.query(Measurement).all())
+    def get_all(self):
+        # Prevent IDE from error reporting
+        Measurement = globals()["Measurement"]
+
+        session = self.db_pool()
+        return session.query(Measurement).all()
 
 
 if __name__ == '__main__':
     db = Sqlalchemy()
-    db.init_database()
-    #db.insert(name="123", type="111", method="22", begin_time=100, finish_time=100, elapse_time=1)
-    db.get_all()
+    db.initialize()
+    print(db.get_all())
