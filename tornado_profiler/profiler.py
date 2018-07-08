@@ -1,21 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import time
+import itertools
 import json
 import base64
 import inspect
 import functools
+from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor
 
 import tornado.web
 import tornado.routing
 
 from tornado_profiler import backend as _backend
+from tornado_profiler.views import MeasurementHandler
 
 
 class Profiler(object):
 
-    def __init__(self, backend, max_workers=5):
+    def __init__(self, backend, max_workers=5, url_prefix="/tornado-profiler/"):
         """
         :param backend: a tornado web application instance
         :param max_workers: use thread pool to store measurements
@@ -29,6 +32,7 @@ class Profiler(object):
             raise ValueError("Unknown backend argument.")
 
         self._max_workers = max_workers
+        self._url_prefix = url_prefix
 
     def init_app(self, app):
         self.backend.initialize()
@@ -44,13 +48,16 @@ class Profiler(object):
         for handler_class in self.get_app_handlers(app):
             self.patch_handler_class(handler_class)
 
+        # register handlers
+        self.register_handlers(app)
+
     @staticmethod
-    def _get_app_router_handlers(app_router):
+    def _get_router_handlers(router):
         handlers = set()
 
-        for rule in app_router.rules:
-            if isinstance(rule.target, tornado.web._ApplicationRouter):
-                nested_handlers = Profiler._get_app_router_handlers(rule.target)
+        for rule in router.rules:
+            if isinstance(rule.target, tornado.routing.Router):
+                nested_handlers = Profiler._get_router_handlers(rule.target)
                 handlers.update(nested_handlers)
             elif inspect.isclass(rule.target) and \
                     issubclass(rule.target, tornado.web.RequestHandler):
@@ -81,7 +88,7 @@ class Profiler(object):
         handlers.add(tornado.web.ErrorHandler)
         # default router handlers
         default_router_handlers = \
-            Profiler._get_app_router_handlers(app.default_router)
+            Profiler._get_router_handlers(app.default_router)
         handlers.update(default_router_handlers)
 
         return handlers
@@ -92,18 +99,6 @@ class Profiler(object):
                   can't know a request is correspond to which Rule's regex
                   unless we iterate all Rules in an application
         """
-        # patch HostMatches
-        old_host_match = tornado.routing.HostMatches.match
-
-        def host_match(self, request):
-            ret = old_host_match(self, request)
-            if ret is not None:
-                # remove final $ or not?
-                request.profiler_name_ = self.regex.pattern
-                request.profiler_type_ = "host_match"
-            return ret
-        tornado.routing.HostMatches.match = functools.partialmethod(host_match)
-
         # patch PathMatches
         old_path_match = tornado.routing.PathMatches.match
 
@@ -112,7 +107,6 @@ class Profiler(object):
             if ret is not None:
                 # remove final $ or not?
                 request.profiler_name_ = self.regex.pattern
-                request.profiler_type_ = "path_match"
                 if ret:
                     request.profiler_path_args_ = ret
             return ret
@@ -143,20 +137,19 @@ class Profiler(object):
                 return
 
             kwargs["method"] = self.request.method
-            kwargs["type"] = getattr(self.request, "profiler_type_", None)
             path_args = getattr(self.request, "profiler_path_args_", None)
 
             # http request instantiated when headers received
-            kwargs["begin_time"] = int(self.request._start_time)
-            kwargs["finish_time"] = int(time.time())
+            kwargs["begin_time"] = self.request._start_time
+            kwargs["finish_time"] = time.time()
             kwargs["elapse_time"] = round(
                 kwargs["finish_time"] - kwargs["begin_time"], 6)
-
+            print(self.request.request_time(), json.dumps(sorted(self.request.headers.items())), type(self.request.headers))
             context = {
                 # "method": self.request.method,
                 "uri": self.request.uri,
                 "version": self.request.version,
-                "headers": str(self.request.headers),
+                "headers": sorted(self.request.headers.items()),
                 # TODO: maybe decode the body according to Content-Type
                 "body": base64.b64encode(self.request.body).decode(),
 
@@ -175,7 +168,8 @@ class Profiler(object):
                 context.update(path_args)
             kwargs["context"] = json.dumps(context)
             # Store measurement into backend
-            profiler_executor = getattr(self.application, "profiler_executor_", None)
+            profiler_executor = getattr(self.application,
+                                        "profiler_executor_", None)
             profiler_backend = getattr(self.application, "profiler_backend_")
             if profiler_backend.is_nonblock():
                 profiler_backend.insert(**kwargs)
@@ -185,3 +179,23 @@ class Profiler(object):
                 raise RuntimeError("Profiler's block backend require a async "
                                    "executor such as ThreadPoolExecutor")
         handler_class.on_finish = functools.partialmethod(on_finish)
+
+    def register_handlers(self, app):
+        """ Register profiler related handlers
+        """
+        api_handlers = [
+            # API
+            ("api/measurements[/]?", MeasurementHandler, None, "list"),
+        ]
+
+        handlers = list()
+        for handler in itertools.chain(api_handlers):
+            from tornado.web import url
+            assert len(handler) in [2, 3, 4]
+
+            handlers.append(url(
+                self._url_prefix + handler[0],
+                *handler[1:]
+            ))
+
+        app.add_handlers(r".*", handlers)

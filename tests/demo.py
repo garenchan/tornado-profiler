@@ -19,15 +19,18 @@ class MyHandler(tornado.web.RequestHandler):
 def main():
     app = tornado.web.Application(
         handlers=[
-            (r"/", MyHandler)
+            (r"/123", MyHandler)
         ],
         enable_profile=True,
     )
 
-    p = profiler.Profiler({"engine": "sqlalchemy"})
+    p = profiler.Profiler({"engine": "sqlalchemy", "db_url": "sqlite:///test.db"})
     p.init_app(app)
     app.listen(8888, address="0.0.0.0")
     tornado.ioloop.IOLoop.current().start()
+    print(p.get_app_handlers(app))
+    backend = p.backend
+    print(backend.filter(id=1))
 
 
 if __name__ == '__main__':

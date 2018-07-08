@@ -77,3 +77,20 @@ class BaseLoader(object):
             elif inspect.isfunction(obj):
                     classes.extend(obj())
         return classes
+
+
+def str2bool(str_val):
+    """ Convert a boolean-like string into bool
+
+    :param str_val: a boolean-like string
+    :return: bool
+    """
+    assert isinstance(str_val, str)
+
+    str_val = str_val.lower()
+    if str_val in ["true", "yes", "1"]:
+        return True
+    elif str_val in ["false", "no", "0"]:
+        return False
+    else:
+        raise ValueError("Unknown boolean-like string %r" % str_val)

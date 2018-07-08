@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import json
+from collections import Iterable
+
 from tornado_profiler.backend import Backend
 
 
@@ -24,6 +27,7 @@ class Sqlalchemy(Backend):
     def initialize(self):
         from sqlalchemy.ext.declarative import declarative_base
         from sqlalchemy import Column, Text, Numeric, Integer, String
+        from sqlalchemy.orm import deferred
 
         base = declarative_base()
 
@@ -33,9 +37,8 @@ class Sqlalchemy(Backend):
 
             id = Column(Integer, primary_key=True)
             name = Column(Text, nullable=False)
-            type = Column(String(32), nullable=True)
             method = Column(String(32), nullable=True)
-            context = Column(Text, nullable=True)
+            context = deferred(Column(Text, nullable=True))
 
             begin_time = Column(Numeric, nullable=False)
             finish_time = Column(Numeric, nullable=False)
@@ -50,6 +53,18 @@ class Sqlalchemy(Backend):
         globals()["Base"] = base
         globals()["Measurement"] = Measurement
 
+    @classmethod
+    def get_name(cls):
+        return "sqlalchemy"
+
+    def is_nonblock(self):
+        # TODO: is there a better way to know whether sqlite in memory?
+        url = self.db_engine.url
+        if str(url) == "sqlite://":
+            return True
+
+        return False
+
     def insert(self, **kwargs):
         # Prevent IDE from error reporting
         Measurement = globals()["Measurement"]
@@ -61,19 +76,78 @@ class Sqlalchemy(Backend):
 
         return measurement
 
-    @classmethod
-    def get_name(cls):
-        return "sqlalchemy"
+    @staticmethod
+    def jsonify(measurement, with_context=False):
+        if not measurement:
+            return measurement
 
-    def get_all(self):
-        # Prevent IDE from error reporting
+        data = {
+            "id": measurement.id,
+            "name": measurement.name,
+            "method": measurement.method,
+            "begin_time": float(measurement.begin_time),
+            "finish_time": float(measurement.finish_time),
+            "elapse_time": float(measurement.elapse_time),
+        }
+        if with_context:
+            data["context"] = json.loads(measurement.context),
+        return data
+
+    def filter(self, **kwargs):
         Measurement = globals()["Measurement"]
 
         session = self.db_pool()
-        return session.query(Measurement).all()
+        query = session.query(Measurement)
+
+        id = kwargs.get("id")
+        if id is not None:
+            measurement = query.get(id)
+            with_context = kwargs.get("with_context", True)
+            return self.jsonify(measurement, with_context=with_context)
+
+        begin_time = kwargs.get("begin_time")
+        if begin_time is not None:
+            query = query.filter(Measurement.begin_time >= begin_time)
+
+        finish_time = kwargs.get("finish_time")
+        if finish_time is not None:
+            query = query.filter(Measurement.finish_time <= finish_time)
+
+        method = kwargs.get("method")
+        if method is not None:
+            query = query.filter_by(method=method)
+
+        name = kwargs.get("name")
+        if name is not None:
+            query = query.filter_by(name=name)
+
+        sort = kwargs.get("sort", "finish_time,desc").split(",")
+        sort_attr = getattr(Measurement, sort[0], None)
+        from sqlalchemy.orm.attributes import InstrumentedAttribute
+        if sort_attr is None or not isinstance(sort_attr, InstrumentedAttribute):
+            raise ValueError("Unknown sort attribute %r" % sort[0])
+        if len(sort) >= 2:
+            order = sort[1].lower()
+            if order not in ["asc", "desc"]:
+                raise ValueError("Unknown sort order %r" % sort[1])
+            else:
+                sort_attr = getattr(sort_attr, order)()
+        query = query.order_by(sort_attr)
+
+        offset = kwargs.get("offset")
+        if offset is not None:
+            query = query.offset(offset)
+
+        limit = kwargs.get("limit")
+        if limit is not None:
+            query = query.limit(limit)
+
+        with_context = kwargs.get("with_context", False)
+        return [self.jsonify(row, with_context=with_context)
+                for row in query.all()]
 
 
 if __name__ == '__main__':
-    db = Sqlalchemy()
+    db = Sqlalchemy(db_url="sqlite:///tornado_profiler.db")
     db.initialize()
-    print(db.get_all())
+    print(db.filter())

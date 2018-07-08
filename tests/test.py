@@ -11,6 +11,7 @@ class Test(object):
 
     def test(self):
         b = B()
+        print(b)
 
 
 if __name__ == '__main__':

@@ -33,8 +33,7 @@ class Backend(metaclass=abc.ABCMeta):
         """ This method used to insert new data
         """
 
-    @classmethod
-    def is_nonblock(cls):
+    def is_nonblock(self):
         """ Used to indicate whether the backend's CRUD will be blocked!
         """
         return False
