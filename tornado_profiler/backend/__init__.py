@@ -24,18 +24,23 @@ class Backend(metaclass=abc.ABCMeta):
     @classmethod
     @abc.abstractmethod
     def get_name(cls):
-        """ Returns backend specific name
-        """
+        """Returns backend specific name"""
         return cls.__name__
 
     @abc.abstractmethod
     def insert(self, **kwargs):
-        """ This method used to insert new data
-        """
+        """This method used to insert new data"""
+
+    @abc.abstractmethod
+    def filter( self, **kwargs ):
+        """This method used to filter datas"""
+
+    @abc.abstractmethod
+    def group(self, **kwargs):
+        """This method used to group datas"""
 
     def is_nonblock(self):
-        """ Used to indicate whether the backend's CRUD will be blocked!
-        """
+        """Used to indicate whether the backend's CRUD will be blocked!"""
         return False
 
 

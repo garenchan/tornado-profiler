@@ -1,27 +1,29 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import os
 import time
 import itertools
 import json
 import base64
 import inspect
 import functools
-from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor
 
 import tornado.web
 import tornado.routing
 
 from tornado_profiler import backend as _backend
-from tornado_profiler.views import MeasurementHandler
+from tornado_profiler.views import (MeasurementHandler, MeasGroupHandler,
+                                    DashboardHandler)
 
 
 class Profiler(object):
 
-    def __init__(self, backend, max_workers=5, url_prefix="/tornado-profiler/"):
+    def __init__(self, backend, max_workers=5, url_prefix="/tornado-profiler"):
         """
         :param backend: a tornado web application instance
         :param max_workers: use thread pool to store measurements
+        :param url_prefix: profiler related handlers' url prefix, NO end slash.
         """
         if isinstance(backend, _backend.Backend):
             self.backend = backend
@@ -46,6 +48,9 @@ class Profiler(object):
         # patch app
         self.patch_matcher_match()
         for handler_class in self.get_app_handlers(app):
+            if issubclass(handler_class, tornado.web.StaticFileHandler):
+                # no need to profile static file handlers
+                continue
             self.patch_handler_class(handler_class)
 
         # register handlers
@@ -80,12 +85,10 @@ class Profiler(object):
         default_handler_class = app.settings.get("default_handler_class")
         if default_handler_class:
             handlers.add(default_handler_class)
-        # static handler
-        static_handler_class = app.settings.get("static_handler_class",
-                                                tornado.web.StaticFileHandler)
-        handlers.add(static_handler_class)
+
         # fallback error handler
         handlers.add(tornado.web.ErrorHandler)
+
         # default router handlers
         default_router_handlers = \
             Profiler._get_router_handlers(app.default_router)
@@ -106,7 +109,10 @@ class Profiler(object):
             ret = old_path_match(self, request)
             if ret is not None:
                 # remove final $ or not?
-                request.profiler_name_ = self.regex.pattern
+                pattern = self.regex.pattern
+                if pattern.endswith('$'):
+                    pattern = pattern[:-1]
+                request.profiler_name_ = pattern
                 if ret:
                     request.profiler_path_args_ = ret
             return ret
@@ -117,13 +123,6 @@ class Profiler(object):
            Record profile datas at key points.
         :param handler_class: subclass of tornado.web.RequestHandler
         """
-        # patch __init__ method
-        # old_init = handler_class.__init__
-        # def __init__(self, *args, **kwargs):
-        #     old_init(self, *args, **kwargs)
-        #     #self.__profiler_handler_init_at = time.time()
-        # handler_class.__init__ = functools.partialmethod(__init__)
-
         # patch on_finish method
         old_on_finish = handler_class.on_finish
 
@@ -142,9 +141,8 @@ class Profiler(object):
             # http request instantiated when headers received
             kwargs["begin_time"] = self.request._start_time
             kwargs["finish_time"] = time.time()
-            kwargs["elapse_time"] = round(
-                kwargs["finish_time"] - kwargs["begin_time"], 6)
-            print(self.request.request_time(), json.dumps(sorted(self.request.headers.items())), type(self.request.headers))
+            kwargs["elapse_time"] = kwargs["finish_time"] - kwargs["begin_time"]
+
             context = {
                 # "method": self.request.method,
                 "uri": self.request.uri,
@@ -159,37 +157,62 @@ class Profiler(object):
                 "host": self.request.host,
                 "path": self.request.path,
                 "arguments": self.request.arguments,
-
                 "cookies": self.request.cookies,
 
                 "full_url": self.request.full_url(),
             }
             if path_args is not None:
                 context.update(path_args)
-            kwargs["context"] = json.dumps(context)
+
+            def json_convert(obj):
+                if isinstance(obj, bytes):
+                    return obj.decode("utf-8")
+            kwargs["context"] = json.dumps(context, default=json_convert)
             # Store measurement into backend
             profiler_executor = getattr(self.application,
                                         "profiler_executor_", None)
             profiler_backend = getattr(self.application, "profiler_backend_")
             if profiler_backend.is_nonblock():
                 profiler_backend.insert(**kwargs)
-            elif profiler_executor:
-                profiler_executor.submit(profiler_backend.insert, **kwargs)
             else:
-                raise RuntimeError("Profiler's block backend require a async "
-                                   "executor such as ThreadPoolExecutor")
+                profiler_executor.submit(profiler_backend.insert, **kwargs)
+
         handler_class.on_finish = functools.partialmethod(on_finish)
 
     def register_handlers(self, app):
         """ Register profiler related handlers
         """
+        dirname = os.path.abspath(os.path.dirname(__file__))
+        template_path = os.path.join(dirname, "templates")
+        static_path = os.path.join(dirname, "static")
+        static_url_prefix = r"/static/"
+
+        page_handlers = [
+            # Pages
+            (r"/?", DashboardHandler, {
+                "template_path": template_path,
+                "static_path": static_path,
+                "static_url_prefix": self._url_prefix + static_url_prefix
+            }),
+        ]
+
         api_handlers = [
-            # API
-            ("api/measurements[/]?", MeasurementHandler, None, "list"),
+            # APIs
+            (r"/api/measurements/?", MeasurementHandler),
+            (r"/api/measurements/groups/?", MeasGroupHandler),
+            (r"/api/measurements/([^/]*)", MeasurementHandler),
+        ]
+
+        static_handlers = [
+            (static_url_prefix + r"(.*)", tornado.web.StaticFileHandler, {
+                "path": static_path,
+            }),
         ]
 
         handlers = list()
-        for handler in itertools.chain(api_handlers):
+        for handler in itertools.chain(page_handlers,
+                                       api_handlers,
+                                       static_handlers):
             from tornado.web import url
             assert len(handler) in [2, 3, 4]
 

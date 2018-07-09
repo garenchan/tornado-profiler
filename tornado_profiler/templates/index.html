@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Tornado Profiler</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Loading Bootstrap -->
+    <link href="{{ static_url('css/bootstrap.min.css') }}" rel="stylesheet">
+
+    <!-- Loading Flat UI Pro -->
+    <link href="{{ static_url('css/flat-ui.min.css') }}" rel="stylesheet">
+    <link href="{{ static_url('css/datatables.min.css') }}" rel="stylesheet">
+    <link href="{{ static_url('css/custom.css') }}" rel="stylesheet">
+    <link rel="shortcut icon" href="{{ static_url('tornado.ico') }}">
+  </head>
+
+  <body>
+    <!-- top navbar-->
+    <nav class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+        <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#navbar-collapse-01">
+                <span class="sr-only">Toggle navigation</span>
+            </button>
+            <a class="navbar-brand" href="#">Tornado Profiler</a>
+        </div>
+        <div class="collapse navbar-collapse" id="navbar-collapse-01">
+            <ul class="nav navbar-nav">
+                <li class="active"><a href="#tab-dashboard" role="tab" data-toggle="tab">Dashboard</a></li>
+                <li><a href="#tab-filtering" role="tab" data-toggle="tab">Filtering</a></li>
+            </ul>
+            <iframe src="https://ghbtns.com/github-btn.html?user=garenchan&repo=tornado-profiler&type=star&count=true" 
+                frameborder="0" scrolling="0" width="90px" height="20px" style="margin-top: 16px;" class="pull-right">
+            </iframe>
+        </div>
+        </div>
+    </nav>
+    <!-- top navbar end-->
+  
+    <div class="container">
+        <div class="row">
+            <div class="tab-content">
+
+                <!-- dashboard tab -->
+                <div role="tabpanel" class="tab-pane active" id="tab-dashboard">
+                    <div class="panel panel-default">
+                        <div class="panel-heading clearfix">
+                            <h1 class="panel-title pull-left">Dashboard <small class="created-time"></small></h1>
+                        </div>
+                        
+                        <div class="panel-body">
+                            <table class="table table-hover" id="groups-table">
+                            </table>
+                        </div>
+                        
+                    </div>
+                </div>
+                <!-- dashboard tab end -->
+                
+                <!-- filtering tab -->
+                <div role="tabpanel" class="tab-pane" id="tab-filtering">
+                    <div class="panel panel-default">
+                        <div class="panel-heading clearfix">
+                            <h1 class="panel-title pull-left">Filtering</h1>
+                        </div>
+                        
+                        <div class="panel-body">
+                            
+                            <table class="table table-hover" id="groups-table">
+                            </table>
+                        </div>
+                        
+                    </div>
+                </div>
+                <!-- filtering tab end -->
+                
+            </div>
+        </div>
+    </div>
+
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="{{ static_url('js/jquery.min.js') }}"></script>
+    <script src="{{ static_url('js/flat-ui.min.js') }}"></script>
+    <script src="{{ static_url('js/datatables.min.js') }}"></script>
+    <!-- our app related javascript -->
+    <script src="{{ static_url('js/profiler.js') }}"></script>
+  </body>
+</html>
