@@ -6,3 +6,19 @@ body {
     border-radius: 0px;
 }
 
+tfoot {
+    display: table-row-group;
+}
+
+.modal-footer {
+    background-color: #1abc9c1a;
+}
+
+.modal-header>h5 {
+    font-size: 20px;
+}
+
+.modal-footer {
+    background-color: #1abc9c1a;
+}
+

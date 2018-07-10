@@ -77,7 +77,6 @@ class Sqlalchemy(Backend):
 
     @staticmethod
     def jsonify(measurement, with_context=False):
-        return measurement
         if not measurement:
             return measurement
 
@@ -90,7 +89,7 @@ class Sqlalchemy(Backend):
             "elapse_time": round(measurement.elapse_time, 6),
         }
         if with_context:
-            data["context"] = json.loads(measurement.context),
+            data["context"] = json.loads(measurement.context or "null"),
         return data
 
     def filter(self, **kwargs):
@@ -106,6 +105,10 @@ class Sqlalchemy(Backend):
             with_context = kwargs.get("with_context", True)
             return self.jsonify(measurement, with_context=with_context)
 
+        elapse_time = kwargs.get("elapse_time")
+        if elapse_time is not None:
+            query = query.filter(Measurement.elapse_time >= elapse_time)
+
         begin_time = kwargs.get("begin_time")
         if begin_time is not None:
             query = query.filter(Measurement.begin_time >= begin_time)
@@ -119,8 +122,12 @@ class Sqlalchemy(Backend):
             query = query.filter_by(method=method)
 
         name = kwargs.get("name")
+        name_regex = kwargs.get("name_regex")
         if name is not None:
             query = query.filter_by(name=name)
+        elif name_regex is not None:
+            name_regex = ''.join(['%', name_regex, '%'])
+            query = query.filter(Measurement.name.ilike(name_regex))
 
         sort = kwargs.get("sort", "finish_time,desc").split(",")
         sort_attr = getattr(Measurement, sort[0], None)
@@ -134,6 +141,10 @@ class Sqlalchemy(Backend):
                 sort_attr = getattr(sort_attr, order)()
         query = query.order_by(sort_attr)
 
+        return_total = kwargs.get("return_total", False)
+        if return_total:
+            total = query.count()
+
         offset = kwargs.get("offset")
         if offset is not None:
             query = query.offset(offset)
@@ -143,8 +154,12 @@ class Sqlalchemy(Backend):
             query = query.limit(limit)
 
         with_context = kwargs.get("with_context", False)
-        return [self.jsonify(row, with_context=with_context)
+        data = [self.jsonify(row, with_context=with_context)
                 for row in query.all()]
+        if return_total:
+            return total, data
+        else:
+            return data
 
     def group(self, **kwargs):
         from sqlalchemy import func, or_

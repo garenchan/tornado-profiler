@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import json
 
-import tornado.gen
+from tornado import gen
 import tornado.web
 
 from tornado_profiler.utils import str2bool
@@ -73,8 +73,7 @@ class APIHandler(BaseHandler):
         return dict(error=dict(
             status=status,
             message=message,
-            code=code,
-        ))
+            code=code))
 
 
 ##############################
@@ -82,7 +81,7 @@ class APIHandler(BaseHandler):
 ##############################
 class MeasurementHandler(APIHandler):
 
-    @tornado.gen.coroutine
+    @gen.coroutine
     def get_measurement_by_id(self, _id):
         """ Get a measurement by id
         """
@@ -93,9 +92,81 @@ class MeasurementHandler(APIHandler):
                 self._executor.submit(self._backend.filter, id=_id)
 
         response = dict(measurement=measurement)
-        return response
+        raise gen.Return(response)
 
-    @tornado.gen.coroutine
+    @gen.coroutine
+    def get_datatable(self):
+        """Datatable ajax source"""
+        COL_MAP = {
+            0: "method",
+            1: "name",
+            2: "elapse_time",
+            3: "begin_time",
+        }
+        try:
+            echo = self.get_argument("sEcho", "1")
+            start = int(self.get_argument("iDisplayStart", 0))
+            length = int(self.get_argument("iDisplayLength", 10))
+            sort_col = int(self.get_argument("iSortCol_0", 2))
+            sort_col = COL_MAP[sort_col]
+            sort_dir = self.get_argument("sSortDir_0", "asc").strip()
+
+            search_kwargs = dict()
+            for i in range(4):
+                searchable = self.get_argument("bSearchable_" + str(i), False)
+                searchable = str2bool(searchable)
+                search = self.get_argument("sSearch_" + str(i), "").strip()
+                if not searchable or not search:
+                    continue
+                column = COL_MAP[i]
+                if column == "method":
+                    if search.upper() != "ALL":
+                        search_kwargs[column] = search
+                elif column == "elapse_time":
+                    search_kwargs[column] = float(search)
+                elif column == "name":
+                    search_kwargs["name_regex"] = search
+                elif column == "begin_time":
+                    stamp_array = search.split('-')
+                    if len(stamp_array) not in [1, 2]:
+                        raise ValueError("Unknown begin_time %r" % search)
+                    begin_time = stamp_array[0].strip()
+                    if begin_time:
+                        search_kwargs["begin_time"] = float(begin_time)
+                    if len(stamp_array) == 2:
+                        finish_time = stamp_array[1].strip()
+                        if finish_time:
+                            search_kwargs["finish_time"] = float(finish_time)
+        except (tornado.web.MissingArgumentError, ValueError) as ex:
+            self.set_status(400)
+            raise gen.Return(self.make_error_response(400, "Param error"))
+
+        kwargs = dict(
+            sort=','.join([sort_col, sort_dir]),
+            offset=start,
+            limit=length,
+            return_total=True,
+        )
+        if search_kwargs:
+            kwargs.update(search_kwargs)
+        try:
+            if self._backend.is_nonblock():
+                total, measurements = self._backend.filter(**kwargs)
+            else:
+                total, measurements = yield \
+                    self._executor.submit(self._backend.filter, **kwargs)
+        except Exception as ex:
+            self.set_status(500)
+            raise gen.Return(
+                self.make_error_response(500, "Profiler internal error", 1))
+        else:
+            raise gen.Return(dict(
+                sEcho=echo,
+                iTotalRecords=total,
+                iTotalDisplayRecords=total,
+                data=measurements))
+
+    @gen.coroutine
     def get_measurements(self):
         """ Get measurement list
         """
@@ -117,26 +188,35 @@ class MeasurementHandler(APIHandler):
                     value = arg_type(value)
                     kwargs[arg_name] = value
         except ValueError:
-            response = self.make_error_response(400, "Param %r error" % arg_name)
             self.set_status(400)
-            return self.write(response)
+            raise gen.Return(
+                self.make_error_response(400, "Param %r error" % arg_name))
 
-        if self._backend.is_nonblock():
-            measurements = self._backend.filter(**kwargs)
+        try:
+            if self._backend.is_nonblock():
+                measurements = self._backend.filter(**kwargs)
+            else:
+                measurements = yield \
+                    self._executor.submit(self._backend.filter, **kwargs)
+        except Exception as ex:
+            self.set_status(500)
+            raise gen.Return(
+                self.make_error_response(500, "Profiler internal error", 1))
         else:
-            measurements = yield \
-                self._executor.submit(self._backend.filter, **kwargs)
+            response = dict(measurements=measurements)
+            raise gen.Return(response)
 
-        response = dict(measurements=measurements)
-        return response
-
-    @tornado.gen.coroutine
+    @gen.coroutine
     def get(self, *args):
         if args:
             _id = args[0]
             response = yield self.get_measurement_by_id(_id)
         else:
-            response = yield self.get_measurements()
+            echo = self.get_argument("sEcho", None)
+            if echo is not None:
+                response = yield self.get_datatable()
+            else:
+                response = yield self.get_measurements()
 
         self.write(response)
 
@@ -145,7 +225,7 @@ class MeasGroupHandler(APIHandler):
     """ Measurements can be grouped by their names.
     """
 
-    @tornado.gen.coroutine
+    @gen.coroutine
     def get_datatable(self):
         """Datatable ajax source"""
         COL_MAP = {
@@ -164,7 +244,7 @@ class MeasGroupHandler(APIHandler):
             sortdir = self.get_argument("sSortDir_0", "asc").strip()
         except (tornado.web.MissingArgumentError, ValueError) as ex:
             self.set_status(400)
-            return self.make_error_response(400, "Param error")
+            raise gen.Return(self.make_error_response(400, "Param error"))
 
         kwargs = dict(
             search=search,
@@ -181,16 +261,16 @@ class MeasGroupHandler(APIHandler):
                     self._executor.submit(self._backend.group, **kwargs)
         except Exception as ex:
             self.set_status(500)
-            return self.make_error_response(500, "Profiler internal error", 1)
+            raise gen.Return(
+                self.make_error_response(500, "Profiler internal error", 1))
         else:
-            return dict(
+            raise gen.Return(dict(
                 sEcho=echo,
                 iTotalRecords=total,
                 iTotalDisplayRecords=total,
-                data=measgroups,
-            )
+                data=measgroups))
 
-    @tornado.gen.coroutine
+    @gen.coroutine
     def get_measgroups(self):
         query_args = [
             ("begin_time", float),
@@ -210,7 +290,8 @@ class MeasGroupHandler(APIHandler):
                     kwargs[arg_name] = value
         except ValueError:
             self.set_status(400)
-            return self.make_error_response(400, "Param %r error" % arg_name)
+            raise gen.Return(
+                self.make_error_response(400, "Param %r error" % arg_name))
 
         try:
             if self._backend.is_nonblock():
@@ -220,11 +301,13 @@ class MeasGroupHandler(APIHandler):
                     self._executor.submit(self._backend.group, **kwargs)
         except Exception:
             self.set_status(500)
-            return self.make_error_response(500, "Profiler internal error", 1)
+            raise gen.Return(
+                self.make_error_response(500, "Profiler internal error", 1))
         else:
-            return dict(measgroups=measgroups)
+            raise gen.Return(dict(
+                measgroups=measgroups))
 
-    @tornado.gen.coroutine
+    @gen.coroutine
     def get(self):
         echo = self.get_argument("sEcho", None)
         if echo is not None:
