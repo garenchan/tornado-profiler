@@ -1,0 +1,7 @@
+include AUTHORS
+include CHANGES
+include LICENSE
+include MANIFEST.in
+include README.md
+include requirements.txt
+recursive-include tornado_profiler *
