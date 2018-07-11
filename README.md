@@ -26,7 +26,13 @@ You can get all details of a request as you wish.
 
 ## Installation
 
-**coming soon!**
+PyPI version:
+
+    $ pip install tornado-profiler
+
+Development version:
+
+    $ pip install https://github.com/garenchan/tornado-profiler/zipball/master
 
 
 ## Quick Start
