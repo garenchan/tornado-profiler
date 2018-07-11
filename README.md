@@ -5,19 +5,19 @@ A profiler measures endpoints defined in your tornado application.
 
 ## Screenshots
 
-* Dashboard: Give a summary of all datas
+### Dashboard: Give a summary of all datas
 
 If an endpoint has been accessed before, you can see its summary data as follows.
 
 ![dashboard](https://raw.githubusercontent.com/garenchan/tornado-profiler/master/docs/screenshots/dashboard.png)
 
-* Filtering: Give filtered datas 
+### Filtering: Give filtered datas 
 
 You can create filters to get datas that meet the criterias.
 
 ![filtering](https://raw.githubusercontent.com/garenchan/tornado-profiler/master/docs/screenshots/filtering.png)
 
-* Context: Give all details of a request
+### Context: Give all details of a request
 
 You can get all details of a request as you wish.
 
@@ -38,6 +38,7 @@ import tornado.ioloop
 import tornado.web
 
 from tornado_profiler import Profiler
+
 
 class MainHandler(tornado.web.RequestHandler):
     def get(self):
