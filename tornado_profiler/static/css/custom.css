@@ -22,3 +22,6 @@ tfoot {
     background-color: #1abc9c1a;
 }
 
+pre {
+    white-space: pre-wrap;
+}

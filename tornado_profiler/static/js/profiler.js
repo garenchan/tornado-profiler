@@ -13,7 +13,7 @@ $(function() {
         //timePickerSeconds: true,
         autoApply:false,
         ranges: {
-           "Today": [moment().startOf("days"), moment()],
+           "Today": [moment().startOf("days"), moment().endOf("days")],
            'Yesterday': [moment().subtract(1, 'days').startOf("days"), moment().subtract(1, 'days').endOf("days")],
            'Last 7 Days': [moment().subtract(6, 'days'), moment()],
            'Last 30 Days': [moment().subtract(29, 'days'), moment()],
@@ -122,7 +122,6 @@ $(function() {
         var data = measurements_table.row(this).data();
         showContext(data.id);
     });
-    hljs.initHighlightingOnLoad();
 });
 
 /*custom function use to switch tabs*/
@@ -177,7 +176,8 @@ function getColumnSearchValue(id, value) {
 
 /*trigger measurements table to search all columns and draw*/
 function triggerRedraw() {
-    column_map = {
+    var redraw = false;
+    var column_map = {
         0: "method-filter",
         1: "name-filter",
         2: "elapse-time-filter",
@@ -185,10 +185,13 @@ function triggerRedraw() {
     }
     for(var index in column_map) {
         var value = getColumnSearchValue(column_map[index]);
-        if (value)
+        if (value !== undefined) {
             measurements_table.column(index).search(value);
+            redraw = true;
+        }
     }
-    measurements_table.draw();
+    if (redraw)
+        measurements_table.draw();
 }
 
 /*get and show a measurement's context*/
@@ -203,12 +206,11 @@ function showContext(id) {
             $("#meas-context-dialog").modal("hide");
         },
         success: function(data) {
-            console.log(data);
             $("#meas-context-dialog-title").text("Measurement-" + id);
-            console.log(JSON.stringify(data.measurement.context));
-            $("#meas-context-dialog-context").text(JSON.stringify(data.measurement.context));
-            $('#meas-context-dialog-body').each(function(i, e) {hljs.highlightBlock(e)});
+            $("#meas-context-dialog-context").text(JSON.stringify(data.measurement.context, undefined, 4));
             $("#meas-context-dialog").modal("show");
+            // remove current request
+            current_request = null;
         }
     });
 }

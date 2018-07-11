@@ -89,7 +89,7 @@ class Sqlalchemy(Backend):
             "elapse_time": round(measurement.elapse_time, 6),
         }
         if with_context:
-            data["context"] = json.loads(measurement.context or "null"),
+            data["context"] = json.loads(measurement.context or "null")
         return data
 
     def filter(self, **kwargs):
@@ -99,9 +99,9 @@ class Sqlalchemy(Backend):
         session = self.db_pool()
         query = session.query(Measurement)
 
-        id = kwargs.get("id")
-        if id is not None:
-            measurement = query.get(id)
+        _id = kwargs.get("id")
+        if _id is not None:
+            measurement = query.get(_id)
             with_context = kwargs.get("with_context", True)
             return self.jsonify(measurement, with_context=with_context)
 
@@ -237,7 +237,7 @@ class Sqlalchemy(Backend):
         if return_total:
             return total, data
         else:
-            return  data
+            return data
 
 
 if __name__ == '__main__':

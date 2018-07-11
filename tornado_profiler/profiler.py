@@ -147,7 +147,7 @@ class Profiler(object):
                 # "method": self.request.method,
                 "uri": self.request.uri,
                 "version": self.request.version,
-                "headers": sorted(self.request.headers.items()),
+                "headers": dict(self.request.headers),
                 # TODO: maybe decode the body according to Content-Type
                 "body": base64.b64encode(self.request.body).decode(),
 

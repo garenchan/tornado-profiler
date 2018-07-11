@@ -32,7 +32,7 @@ class Backend(metaclass=abc.ABCMeta):
         """This method used to insert new data"""
 
     @abc.abstractmethod
-    def filter( self, **kwargs ):
+    def filter(self, **kwargs):
         """This method used to filter datas"""
 
     @abc.abstractmethod
@@ -50,7 +50,7 @@ class BackendFinder(BaseLoader):
     """
 
     def __init__(self):
-        super().__init__(Backend)
+        super(BackendFinder, self).__init__(Backend)
 
 
 def get_all_backends():
