@@ -91,7 +91,7 @@ If everything is ok, tornado-profiler will measure these requests. You can see t
 
 ## Data Storage Backend
 
-You can use some databases to store your measurement data, such as SQLite, Mysql. The drivers we support are shown as follows:
+You can use some databases to store your measurement data, such as SQLite, MySQL. The drivers we support are shown as follows:
 
 ### SQLAlchemy
 
@@ -134,7 +134,17 @@ In some scenarios, we do not want to persist measurement datas, we can use the i
 
 ### Other Drivers
 
-**coming soon!**
+**Coming Soon!**
+
+
+## TODO
+
+* Add authentication support, such as HTTP Basic Authentication
+
+* Time series chart of requests
+
+* Find block I/O happened in the past
+
 
 ## Comment
 
