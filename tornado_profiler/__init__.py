@@ -4,4 +4,4 @@ __version__ = "1.0.0"
 __all__ = ["Profiler"]
 
 
-from .profiler import Profiler
+from tornado_profiler.profiler import Profiler

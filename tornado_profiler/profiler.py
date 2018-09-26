@@ -13,17 +13,20 @@ import tornado.web
 import tornado.routing
 
 from tornado_profiler import backend as _backend
+from tornado_profiler import monkey
 from tornado_profiler.views import (MeasurementHandler, MeasGroupHandler,
-                                    DashboardHandler)
+                                    DashboardHandler, BlockingCodeHandler)
 
 
-class Profiler(object):
+class Profiler(monkey.Receiver):
 
-    def __init__(self, backend, max_workers=5, url_prefix="/tornado-profiler"):
+    def __init__(self, backend, max_workers=5, url_prefix="/tornado-profiler",
+                 enable_code_analysis=True):
         """
         :param backend: a tornado web application instance
         :param max_workers: use thread pool to store measurements
         :param url_prefix: profiler related handlers' url prefix, NO end slash.
+        :param enable_code_analysis: enable code analysis or not
         """
         if isinstance(backend, _backend.Backend):
             self.backend = backend
@@ -35,6 +38,9 @@ class Profiler(object):
 
         self._max_workers = max_workers
         self._url_prefix = url_prefix
+
+        self.enable_code_analysis = enable_code_analysis
+        self.blocking_traceback_buffer = None
 
     def init_app(self, app):
         self.backend.initialize()
@@ -52,6 +58,22 @@ class Profiler(object):
                 # no need to profile static file handlers
                 continue
             self.patch_handler_class(handler_class)
+
+        # monkey patch to find potential blocking points
+        if self.enable_code_analysis:
+            app.profiler_blocking_codes_ = self.blocking_traceback_buffer = set()
+            orig_listen = app.listen
+
+            @functools.wraps(orig_listen)
+            def listen(*args, **kwargs):
+                ret = orig_listen(*args, **kwargs)
+                # NOTE: delay the monkey patch after listen finish,
+                # or else there may be some misreports.
+                _monkey = monkey.Monkey(self)
+                _monkey.patch_all()
+                del _monkey
+                return ret
+            app.listen = listen
 
         # register handlers
         self.register_handlers(app)
@@ -105,6 +127,7 @@ class Profiler(object):
         # patch PathMatches
         old_path_match = tornado.routing.PathMatches.match
 
+        @functools.wraps(old_path_match)
         def path_match(self, request):
             ret = old_path_match(self, request)
             if ret is not None:
@@ -116,7 +139,7 @@ class Profiler(object):
                 if ret:
                     request.profiler_path_args_ = ret
             return ret
-        tornado.routing.PathMatches.match = functools.partialmethod(path_match)
+        tornado.routing.PathMatches.match = path_match
 
     def patch_handler_class(self, handler_class):
         """Patch all handler classes registered in application.
@@ -126,6 +149,7 @@ class Profiler(object):
         # patch on_finish method
         old_on_finish = handler_class.on_finish
 
+        @functools.wraps(old_on_finish)
         def on_finish(self):
             old_on_finish(self)
 
@@ -177,7 +201,16 @@ class Profiler(object):
             else:
                 profiler_executor.submit(profiler_backend.insert, **kwargs)
 
-        handler_class.on_finish = functools.partialmethod(on_finish)
+        handler_class.on_finish = on_finish
+
+    def notify_blocking_point(self, message):
+        """If go through some blocking codes, `monkey` will notify us.
+        :param message: a traceback for a slow system calls
+        """
+        self.blocking_traceback_buffer.add(tuple(message))
+        print(len(self.blocking_traceback_buffer))
+        for i in message[:]:
+            print(i)
 
     def register_handlers(self, app):
         """ Register profiler related handlers
@@ -195,14 +228,13 @@ class Profiler(object):
                 "static_url_prefix": self._url_prefix + static_url_prefix
             }),
         ]
-
         api_handlers = [
             # APIs
             (r"/api/measurements/?", MeasurementHandler),
             (r"/api/measurements/groups/?", MeasGroupHandler),
             (r"/api/measurements/([^/]*)", MeasurementHandler),
+            (r"/api/code_analysis/blocking_points/?", BlockingCodeHandler),
         ]
-
         static_handlers = [
             (static_url_prefix + r"(.*)", tornado.web.StaticFileHandler, {
                 "path": static_path,

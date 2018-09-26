@@ -141,6 +141,8 @@ In some scenarios, we do not want to persist measurement datas, we can use the i
 
 * Add authentication support, such as HTTP Basic Authentication
 
+* Data sampling
+
 * Time series chart of requests
 
 * Find block I/O happened in the past

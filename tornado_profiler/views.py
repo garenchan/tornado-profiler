@@ -13,9 +13,11 @@ class BaseHandler(tornado.web.RequestHandler):
     def initialize(self, template_path=None, static_path=None,
                    static_url_prefix=None):
         self._executor = getattr(self.application,
-                                    "profiler_executor_", None)  # noqa
+                                 "profiler_executor_", None)  # noqa
         self._backend = getattr(self.application,
                                         "profiler_backend_")  # noqa
+        self._blocking_codes = getattr(self.application,
+                                 "profiler_blocking_codes_", None)
         self._template_path = template_path
         self._static_path = static_path
         self._static_url_prefix = static_url_prefix
@@ -95,9 +97,9 @@ class MeasurementHandler(APIHandler):
         raise gen.Return(response)
 
     @gen.coroutine
-    def get_datatable(self):
+    def get_data_table(self):
         """Datatable ajax source"""
-        COL_MAP = {
+        col_map = {
             0: "method",
             1: "name",
             2: "elapse_time",
@@ -108,7 +110,7 @@ class MeasurementHandler(APIHandler):
             start = int(self.get_argument("iDisplayStart", 0))
             length = int(self.get_argument("iDisplayLength", 10))
             sort_col = int(self.get_argument("iSortCol_0", 2))
-            sort_col = COL_MAP[sort_col]
+            sort_col = col_map[sort_col]
             sort_dir = self.get_argument("sSortDir_0", "asc").strip()
 
             search_kwargs = dict()
@@ -118,7 +120,7 @@ class MeasurementHandler(APIHandler):
                 search = self.get_argument("sSearch_" + str(i), "").strip()
                 if not searchable or not search:
                     continue
-                column = COL_MAP[i]
+                column = col_map[i]
                 if column == "method":
                     if search.upper() != "ALL":
                         search_kwargs[column] = search
@@ -214,7 +216,7 @@ class MeasurementHandler(APIHandler):
         else:
             echo = self.get_argument("sEcho", None)
             if echo is not None:
-                response = yield self.get_datatable()
+                response = yield self.get_data_table()
             else:
                 response = yield self.get_measurements()
 
@@ -226,9 +228,9 @@ class MeasGroupHandler(APIHandler):
     """
 
     @gen.coroutine
-    def get_datatable(self):
+    def get_data_table(self):
         """Datatable ajax source"""
-        COL_MAP = {
+        col_map = {
             2: "count",
             3: "avg",
             4: "max",
@@ -240,7 +242,7 @@ class MeasGroupHandler(APIHandler):
             length = int(self.get_argument("iDisplayLength", 10))
             search = self.get_argument("sSearch", None)
             sortcol = int(self.get_argument("iSortCol_0", 2))
-            sortcol = COL_MAP[sortcol]
+            sortcol = col_map[sortcol]
             sortdir = self.get_argument("sSortDir_0", "asc").strip()
         except (tornado.web.MissingArgumentError, ValueError) as ex:
             self.set_status(400)
@@ -271,7 +273,7 @@ class MeasGroupHandler(APIHandler):
                 data=measgroups))
 
     @gen.coroutine
-    def get_measgroups(self):
+    def get_meas_groups(self):
         query_args = [
             ("begin_time", float),
             ("finish_time", float),
@@ -311,10 +313,22 @@ class MeasGroupHandler(APIHandler):
     def get(self):
         echo = self.get_argument("sEcho", None)
         if echo is not None:
-            response = yield self.get_datatable()
+            response = yield self.get_data_table()
         else:
-            response = yield self.get_measgroups()
+            response = yield self.get_meas_groups()
 
+        self.write(response)
+
+
+class BlockingCodeHandler(APIHandler):
+
+    def get(self):
+        if self._blocking_codes is None:
+            self.set_status(400)
+            response = self.make_error_response(400, "blocking code analysis may"
+                                                     "be not enabled")
+        else:
+            response = dict(blocking_points=self._blocking_codes)
         self.write(response)
 
 
